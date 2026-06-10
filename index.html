@@ -86,8 +86,15 @@
                 <span class="bg-emerald-500 text-white px-6 py-2 rounded-full font-bold shadow-lg tracking-wider">現在 (NOW)</span>
             </div>
 
-            <div class="flex justify-end mb-4 relative z-10">
-                <button id="toggleAllBtn" onclick="toggleAllMonths()" class="text-sm bg-blue-100 hover:bg-blue-200 text-blue-800 px-4 py-1.5 rounded-full font-bold transition shadow-sm">
+            <div class="flex flex-col sm:flex-row justify-between items-center gap-3 mb-6 relative z-10 bg-white p-3 rounded-xl shadow-sm border border-gray-100">
+                <div class="flex items-center gap-1.5 text-sm">
+                    <span class="font-bold text-gray-500 mr-1">🛸 平台篩選：</span>
+                    <button onclick="filterPlatform('ALL')" id="filter-btn-ALL" class="px-3 py-1 rounded-full font-bold transition bg-slate-800 text-white shadow-sm">全部</button>
+                    <button onclick="filterPlatform('NS')" id="filter-btn-NS" class="px-3 py-1 rounded-full font-bold transition bg-gray-100 text-gray-600 hover:bg-gray-200">NS</button>
+                    <button onclick="filterPlatform('NS2')" id="filter-btn-NS2" class="px-3 py-1 rounded-full font-bold transition bg-gray-100 text-gray-600 hover:bg-gray-200">NS2</button>
+                    <button onclick="filterPlatform('PS')" id="filter-btn-PS" class="px-3 py-1 rounded-full font-bold transition bg-gray-100 text-gray-600 hover:bg-gray-200">PS</button>
+                </div>
+                <button id="toggleAllBtn" onclick="toggleAllMonths()" class="text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 px-4 py-2 rounded-lg font-bold transition">
                     全部收合 ▲
                 </button>
             </div>
@@ -204,17 +211,34 @@
         var db = firebase.database();
         var gamesRef = db.ref('games');
 
+        /* 全域變數狀態管理 */
         window.isMonthsOpen = true;
+        window.currentFilter = "ALL"; /* 預設顯示全部平台 */
+        window.latestRawSnapshotData = []; /* 用來暫存從雲端撈下來的乾淨資料庫陣列 */
+
+        /* 切換平台篩選按鈕狀態與觸發重繪 */
+        function filterPlatform(platform) {
+            window.currentFilter = platform;
+
+            /* 更新按鈕視覺藍色/灰色外觀 */
+            var filterButtons = ["ALL", "NS", "NS2", "PS"];
+            for (var i = 0; i < filterButtons.length; i++) {
+                var btn = document.getElementById("filter-btn-" + filterButtons[i]);
+                if (filterButtons[i] === platform) {
+                    btn.className = "px-3 py-1 rounded-full font-bold transition bg-slate-800 text-white shadow-sm";
+                } else {
+                    btn.className = "px-3 py-1 rounded-full font-bold transition bg-gray-100 text-gray-600 hover:bg-gray-200";
+                }
+            }
+
+            /* 使用暫存的資料快取直接重繪前台，不需要重新讀取資料庫 */
+            renderFrontendViews(window.latestRawSnapshotData);
+        }
 
         function toggleAllMonths() {
             window.isMonthsOpen = !window.isMonthsOpen;
             var btn = document.getElementById("toggleAllBtn");
-
-            if (window.isMonthsOpen) {
-                btn.innerText = "全部收合 ▲";
-            } else {
-                btn.innerText = "全部展開 ▼";
-            }
+            btn.innerText = window.isMonthsOpen ? "全部收合 ▲" : "全部展開 ▼";
 
             var detailsElements = document.querySelectorAll('#upcoming-container details');
             for (var i = 0; i < detailsElements.length; i++) {
@@ -308,7 +332,23 @@
             return yyyy + "-" + mm + "-" + dd;
         }
 
+        /* 核心連線監聽器：只負責把原始檔存下來分發 */
         gamesRef.orderByChild('release_date').on('value', function(snapshot) {
+            window.latestRawSnapshotData = [];
+            if (snapshot.exists()) {
+                snapshot.forEach(function(childSnapshot) {
+                    var game = childSnapshot.val();
+                    if (game && game.title) {
+                        game.id = childSnapshot.key;
+                        window.latestRawSnapshotData.push(game);
+                    }
+                });
+            }
+            renderFrontendViews(window.latestRawSnapshotData);
+        });
+
+        /* 負責執行前台連動篩選渲染的獨立函式 */
+        function renderFrontendViews(rawGamesList) {
             var upcomingContainer = document.getElementById("upcoming-container");
             var tbaContainer = document.getElementById("tba-container");
             var releasedContainer = document.getElementById("released-container");
@@ -319,9 +359,12 @@
             releasedContainer.innerHTML = "";
             backendTableBody.innerHTML = "";
 
-            if (!snapshot.exists()) {
+            if (rawGamesList.length === 0) {
                 upcomingContainer.innerHTML = '<div class="text-center text-gray-400 py-10">目前暫無遊戲資料。</div>';
                 backendTableBody.innerHTML = '<tr><td colspan="4" class="text-center text-gray-400 p-6">資料庫目前空空如也</td></tr>';
+                renderExcel([
+                    ["", "", false, false, false]
+                ]);
                 return;
             }
 
@@ -330,16 +373,10 @@
             var upcomingGroups = {};
             var excelData = [];
 
-            snapshot.forEach(function(childSnapshot) {
-                var id = childSnapshot.key;
-                var game = childSnapshot.val();
+            for (var k = 0; k < rawGamesList.length; k++) {
+                var game = rawGamesList[k];
+                var id = game.id;
 
-                /* 如果一整列都是空的、或是沒有 title 欄位，直接略過防呆 */
-                if (!game || !game.title) return;
-
-                game.id = id;
-
-                /* 加強防護：確保日期字串存在才切尾巴 */
                 if (game.release_date && typeof game.release_date === "string") {
                     game.release_date = game.release_date.split(" ")[0].trim();
                 } else {
@@ -350,6 +387,7 @@
                 var ns2 = !!(game.platforms && game.platforms.includes('NS2'));
                 var ps = !!(game.platforms && game.platforms.includes('PS'));
 
+                /* Excel 資料庫表格不受篩選按鈕影響，永遠顯示全部完整清單 */
                 excelData.push([game.release_date || "", game.title || "", ns, ns2, ps]);
 
                 var tags = '';
@@ -362,12 +400,19 @@
                 var gameDataJson = JSON.stringify(game).replace(/"/g, '&quot;');
                 game.onClickAttr = 'onclick="editSingleData(\'' + id + '\', ' + gameDataJson + ')"';
 
+                var trHTML = '<tr class="border-b border-gray-100 hover:bg-slate-50 transition"><td class="p-4 font-mono text-sm text-blue-600">' + dateText + '</td><td class="p-4 font-bold text-gray-800">' + game.title + '</td><td class="p-4">' + tags + '</td><td class="p-4 text-center"><button ' + game.onClickAttr + ' class="text-blue-500 hover:text-blue-700 font-bold text-sm bg-blue-50 px-3 py-1 rounded">修改</button></td></tr>';
+                backendTableBody.innerHTML += trHTML;
+
+                /* 🛑 【平台篩選關鍵點核心邏輯】 如果不符合當前篩選標籤，直接跳過不渲染在前台 */
+                if (window.currentFilter !== "ALL") {
+                    if (window.currentFilter === "NS" && !ns) continue;
+                    if (window.currentFilter === "NS2" && !ns2) continue;
+                    if (window.currentFilter === "PS" && !ps) continue;
+                }
+
                 var searchUrl = "https://www.google.com/search?q=" + encodeURIComponent(game.title);
                 var uSearchBtnHtml = '<a href="' + searchUrl + '" target="_blank" onclick="event.stopPropagation()" class="text-xs bg-blue-50 hover:bg-blue-100 text-blue-600 px-2 py-1 rounded shadow-sm transition flex-shrink-0 flex items-center gap-1 border border-blue-100">🔍 介紹</a>';
                 var smallSearchBtnHtml = '<a href="' + searchUrl + '" target="_blank" onclick="event.stopPropagation()" class="text-xs bg-gray-200 hover:bg-gray-300 text-gray-600 px-2 py-1 rounded transition flex-shrink-0">🔍</a>';
-
-                var trHTML = '<tr class="border-b border-gray-100 hover:bg-slate-50 transition"><td class="p-4 font-mono text-sm text-blue-600">' + dateText + '</td><td class="p-4 font-bold text-gray-800">' + game.title + '</td><td class="p-4">' + tags + '</td><td class="p-4 text-center"><button ' + game.onClickAttr + ' class="text-blue-500 hover:text-blue-700 font-bold text-sm bg-blue-50 px-3 py-1 rounded">修改</button></td></tr>';
-                backendTableBody.innerHTML += trHTML;
 
                 if (!game.release_date || game.release_date.trim() === "") {
                     var tbaItem = '<div ' + game.onClickAttr + ' class="p-3 bg-slate-50 border border-gray-200 rounded-lg shadow-sm cursor-pointer hover:bg-slate-100 transition transform hover:-translate-y-0.5"><h4 class="font-bold text-gray-800 text-sm mb-2 flex justify-between items-start gap-2"><span>' + game.title + '</span>' + smallSearchBtnHtml + '</h4><div class="flex gap-1">' + tags + '</div></div>';
@@ -375,13 +420,13 @@
                 } else if (game.release_date < todayStr) {
                     releasedGames.push(game);
                 } else {
-                    /* 加強安全檢查：確保長度足夠才擷取年月份 */
                     var monthKey = game.release_date.length >= 7 ? game.release_date.substring(0, 7) : "其他";
                     if (!upcomingGroups[monthKey]) upcomingGroups[monthKey] = [];
                     upcomingGroups[monthKey].push(game);
                 }
-            });
+            }
 
+            /* 渲染已發售 */
             if (releasedGames.length > 0) {
                 releasedGames.sort(function(a, b) {
                     return a.release_date > b.release_date ? -1 : 1;
@@ -393,12 +438,13 @@
                     releasedContainer.innerHTML += rItem;
                 }
             } else {
-                releasedContainer.innerHTML = '<div class="text-sm text-gray-400 text-center py-2">目前沒有歷史紀錄</div>';
+                releasedContainer.innerHTML = '<div class="text-sm text-gray-400 text-center py-2">目前篩選條件下沒有發售紀錄</div>';
             }
 
+            /* 渲染未發售月份 */
             var monthKeys = Object.keys(upcomingGroups).sort();
             if (monthKeys.length === 0) {
-                upcomingContainer.innerHTML = '<div class="text-center text-gray-400 py-10">目前沒有即將發售的遊戲。</div>';
+                upcomingContainer.innerHTML = '<div class="text-center text-gray-400 py-10">目前篩選條件下，沒有即將發售的遊戲。</div>';
             } else {
                 var openAttr = window.isMonthsOpen ? 'open' : '';
 
@@ -415,8 +461,6 @@
                         var ug = gamesInMonth[j];
                         var isLeft = (j % 2 === 0);
                         var alignClass = isLeft ? 'md:mr-auto md:text-right' : 'md:ml-auto md:text-left';
-                        var searchUrl = "https://www.google.com/search?q=" + encodeURIComponent(ug.title);
-                        var uSearchBtnHtml = '<a href="' + searchUrl + '" target="_blank" onclick="event.stopPropagation()" class="text-xs bg-blue-50 hover:bg-blue-100 text-blue-600 px-2 py-1 rounded shadow-sm transition flex-shrink-0 flex items-center gap-1 border border-blue-100">🔍 介紹</a>';
 
                         groupHTML += '<div class="flex flex-col md:flex-row items-center relative z-10 w-full"><div class="absolute left-1/2 transform -translate-x-1/2 w-4 h-4 rounded-full border-4 border-blue-500 bg-white"></div><div class="w-full md:w-5/12 ' + alignClass + ' p-4"><div ' + ug.onClickAttr + ' class="bg-white p-4 rounded-xl shadow border border-gray-100 inline-block w-full max-w-sm text-left cursor-pointer transition transform hover:-translate-y-1 hover:shadow-lg"><div class="text-sm font-bold text-blue-600 mb-1">📅 ' + ug.release_date + '</div><h4 class="font-bold text-gray-900 mb-3 text-base flex justify-between items-start gap-2"><span>' + ug.title + '</span>' + uSearchBtnHtml + '</h4><div class="flex gap-1.5">' + ug.tagsHTML + '</div></div></div></div>';
                     }
@@ -425,8 +469,13 @@
                 }
             }
 
-            if (tbaContainer.innerHTML === "") tbaContainer.innerHTML = '<div class="text-sm text-gray-400 text-center py-4">目前沒有未定遊戲</div>';
-        });
+            if (tbaContainer.innerHTML === "") tbaContainer.innerHTML = '<div class="text-sm text-gray-400 text-center py-4">無對應平台遊戲</div>';
+
+            /* 只有在初次載入或重新綁定時更新後台 Excel，避免輸入到一半被即時重新整理沖掉 */
+            if (window.currentFilter === "ALL") {
+                renderExcel(excelData);
+            }
+        }
 
         function editSingleData(id, game) {
             document.getElementById("gameForm").reset();
