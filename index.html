@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>遊戲發售觀測站與管理後台</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <script src="https://bossanova.uk/jspreadsheet/v4/jexcel.js"></script>
+    <link rel="stylesheet" href="https://bossanova.uk/jspreadsheet/v4/jexcel.css" type="text/css" />
+    <script src="https://jsuites.net/v4/jsuites.js"></script>
+    <link rel="stylesheet" href="https://jsuites.net/v4/jsuites.css" type="text/css" />
+
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+
+    <style>
+        .timeline-line::before {
+            content: '';
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 4px;
+            height: 100%;
+            background-color: #cbd5e1;
+            z-index: 0;
+        }
+        
+        .jexcel {
+            font-family: sans-serif;
+        }
+        
+        details>summary {
+            list-style: none;
+        }
+        
+        details>summary::-webkit-details-marker {
+            display: none;
+        }
+        
+        .resize-container {
+            resize: vertical;
+            overflow: auto;
+            min-height: 250px;
+            max-height: 80vh;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-50 text-gray-800 font-sans">
+
+    <nav class="bg-slate-800 text-white p-4 sticky top-0 z-50 shadow-md">
+        <div class="container mx-auto flex justify-between items-center">
+            <h1 class="text-xl font-bold tracking-wide">🎮 遊戲發售觀測站</h1>
+            <div class="flex gap-2">
+                <button id="toggleViewBtn" onclick="toggleView()" class="bg-amber-500 hover:bg-amber-600 text-slate-900 px-4 py-2 rounded font-bold transition shadow">
+                    ⚙️ 切換至管理後台
+                </button>
+                <button id="addSingleBtn" onclick="openModal()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded font-medium transition shadow">
+                    + 簡易新增單筆
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <main id="timeline-view" class="container mx-auto px-4 py-10 max-w-6xl flex flex-col md:flex-row gap-8 relative">
+
+        <div class="flex-1 w-full max-w-3xl">
+            <details class="mb-10 group bg-white rounded-xl shadow border border-gray-200">
+                <summary class="p-4 font-bold text-slate-700 hover:text-blue-600 cursor-pointer flex justify-between items-center outline-none bg-slate-50 rounded-xl">
+                    <span class="flex items-center gap-2">⏪ <span class="tracking-wide">查看已發售遊戲</span></span>
+                    <span class="transform group-open:rotate-180 transition duration-300">▼</span>
+                </summary>
+                <div id="released-container" class="p-4 border-t border-gray-100 space-y-3 max-h-[400px] overflow-y-auto bg-gray-50/50">
+                </div>
+            </details>
+
+            <div class="flex justify-center mb-6 relative z-10">
+                <span class="bg-emerald-500 text-white px-6 py-2 rounded-full font-bold shadow-lg tracking-wider">現在 (NOW)</span>
+            </div>
+
+            <div class="flex justify-end mb-4 relative z-10">
+                <button id="toggleAllBtn" onclick="toggleAllMonths()" class="text-sm bg-blue-100 hover:bg-blue-200 text-blue-800 px-4 py-1.5 rounded-full font-bold transition shadow-sm">
+                    全部收合 ▲
+                </button>
+            </div>
+
+            <div id="upcoming-container" class="space-y-6">
+                <div class="text-center text-gray-500 py-10">資料載入中...</div>
+            </div>
+        </div>
+
+        <aside class="w-full md:w-80 flex-shrink-0">
+            <div class="bg-white rounded-xl shadow border border-gray-200 p-5 sticky top-24">
+                <h3 class="font-bold text-lg text-slate-800 mb-4 border-b border-gray-100 pb-2 flex justify-between items-center">
+                    <span>🗓️ 發售日未定</span>
+                    <span class="text-xs bg-gray-100 text-gray-500 px-2 py-1 rounded">TBA</span>
+                </h3>
+                <div id="tba-container" class="space-y-3 max-h-[70vh] overflow-y-auto pr-2">
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <main id="backend-view" class="container mx-auto px-4 py-10 max-w-6xl hidden">
+
+        <div class="bg-white p-6 rounded-xl shadow-md border border-gray-200 mb-8">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
+                <div>
+                    <h2 class="text-xl font-bold text-slate-800 flex items-center gap-2">📋 批次資料匯入區 <span class="text-xs bg-amber-100 text-amber-700 px-2 py-1 rounded font-normal">純新增工具</span></h2>
+                    <p class="text-sm text-gray-500 mt-1">此區塊預設為空，避免誤刪舊資料。貼上資料後點擊儲存，僅會「附加更新」至資料庫。右下角可拖拉調整視窗大小。</p>
+                </div>
+                <button id="saveDbBtn" onclick="saveExcelData()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-6 py-3 rounded-lg shadow-lg transition transform active:scale-95 w-full md:w-auto">
+                    ☁️ 批次新增至資料庫
+                </button>
+            </div>
+
+            <div class="resize-container border border-gray-300 rounded shadow-inner bg-slate-50 p-2 relative">
+                <div id="spreadsheet"></div>
+            </div>
+            <div class="text-right text-xs text-gray-400 mt-1 mr-1">↘ 可於右下角拖拉調整高度</div>
+        </div>
+
+        <div class="bg-white p-6 rounded-xl shadow-md border border-gray-200">
+            <h2 class="text-xl font-bold text-slate-800 mb-4">🗄️ 目前資料庫完整清單</h2>
+            <div class="overflow-x-auto rounded border border-gray-200">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-slate-100 text-slate-600 text-sm uppercase font-bold border-b border-gray-200">
+                            <th class="p-4 whitespace-nowrap">發售日期</th>
+                            <th class="p-4 w-1/2">遊戲名稱</th>
+                            <th class="p-4">登陸平台</th>
+                            <th class="p-4 text-center">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="backend-table-body">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <div id="gameModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl relative">
+            <h3 id="modalTitle" class="text-lg font-bold mb-4 text-slate-800">新增遊戲資料</h3>
+            <form id="gameForm" onsubmit="submitSingleForm(event)">
+                <input type="hidden" id="gameId">
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">遊戲名稱 (必填)</label>
+                    <input type="text" id="title" required class="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:border-blue-500">
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">發售日期 (空白則列為未定)</label>
+                    <input type="date" id="releaseDate" class="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:border-blue-500 text-gray-600">
+                </div>
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">發售平台</label>
+                    <div class="flex gap-4">
+                        <label class="inline-flex items-center">
+                            <input type="checkbox" value="NS" class="platform-checkbox rounded text-red-600">
+                            <span class="ml-2 text-sm font-bold text-red-600">NS</span>
+                        </label>
+                        <label class="inline-flex items-center">
+                            <input type="checkbox" value="NS2" class="platform-checkbox rounded text-red-500">
+                            <span class="ml-2 text-sm font-bold text-red-500">NS2</span>
+                        </label>
+                        <label class="inline-flex items-center">
+                            <input type="checkbox" value="PS" class="platform-checkbox rounded text-blue-600">
+                            <span class="ml-2 text-sm font-bold text-blue-600">PS</span>
+                        </label>
+                    </div>
+                </div>
+                <div class="flex justify-end gap-2 mt-6">
+                    <button type="button" onclick="closeModal()" class="px-4 py-2 border border-gray-300 rounded text-gray-700 hover:bg-gray-50">取消</button>
+                    <button type="button" id="deleteBtn" onclick="deleteSingleData()" class="hidden px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 mr-auto shadow">刪除</button>
+                    <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 shadow">儲存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        firebase.initializeApp({
+            apiKey: "AIzaSyD-YTwX9fupqFxifRCzMGfIJHwi82nss14",
+            authDomain: "game-release-schedule.firebaseapp.com",
+            databaseURL: "https://game-release-schedule-default-rtdb.firebaseio.com",
+            projectId: "game-release-schedule",
+            storageBucket: "game-release-schedule.firebasestorage.app",
+            messagingSenderId: "532722105593",
+            appId: "1:532722105593:web:18cf58b50047450f9e3628",
+            measurementId: "G-VHHNYSEP7Y"
+        });
+
+        var db = firebase.database();
+        var gamesRef = db.ref('games');
+
+        /* 全域變數：紀錄月份群組是否為「全部展開」狀態 */
+        window.isMonthsOpen = true;
+
+        /* 一鍵收合/展開所有月份的函式 */
+        function toggleAllMonths() {
+            window.isMonthsOpen = !window.isMonthsOpen;
+            var btn = document.getElementById("toggleAllBtn");
+
+            if (window.isMonthsOpen) {
+                btn.innerText = "全部收合 ▲";
+            } else {
+                btn.innerText = "全部展開 ▼";
+            }
+
+            /* 選取 upcoming-container 裡面所有的 details 元素並修改狀態 */
+            var detailsElements = document.querySelectorAll('#upcoming-container details');
+            for (var i = 0; i < detailsElements.length; i++) {
+                if (window.isMonthsOpen) {
+                    detailsElements[i].setAttribute('open', '');
+                } else {
+                    detailsElements[i].removeAttribute('open');
+                }
+            }
+        }
+
+        function toggleView() {
+            var timelineView = document.getElementById("timeline-view");
+            var backendView = document.getElementById("backend-view");
+            var toggleBtn = document.getElementById("toggleViewBtn");
+            var addSingleBtn = document.getElementById("addSingleBtn");
+
+            if (timelineView.classList.contains("hidden")) {
+                timelineView.classList.remove("hidden");
+                backendView.classList.add("hidden");
+                addSingleBtn.classList.remove("hidden");
+                toggleBtn.innerText = "⚙️ 切換至管理後台";
+                toggleBtn.className = "bg-amber-500 hover:bg-amber-600 text-slate-900 px-4 py-2 rounded font-bold transition shadow";
+            } else {
+                timelineView.classList.add("hidden");
+                backendView.classList.remove("hidden");
+                addSingleBtn.classList.add("hidden");
+                toggleBtn.innerText = "📱 返回前台時間軸";
+                toggleBtn.className = "bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded font-bold transition shadow";
+            }
+        }
+
+        function openModal() {
+            document.getElementById("gameForm").reset();
+            document.getElementById("gameId").value = "";
+            document.getElementById("modalTitle").innerText = "✨ 新增發售遊戲";
+            document.getElementById("deleteBtn").classList.add("hidden");
+            document.getElementById("gameModal").classList.remove("hidden");
+        }
+
+        function closeModal() {
+            document.getElementById("gameModal").classList.add("hidden");
+        }
+
+        function initEmptyExcel() {
+            if (window.excelTable) window.excelTable.destroy();
+            var data = [];
+            for (var i = 0; i < 15; i++) {
+                data.push(["", "", false, false, false]);
+            }
+            window.excelTable = jspreadsheet(document.getElementById('spreadsheet'), {
+                data: data,
+                columns: [{
+                    type: 'calendar',
+                    title: '發售日期\n(留空即未定)',
+                    width: 140,
+                    options: {
+                        format: 'YYYY-MM-DD'
+                    }
+                }, {
+                    type: 'text',
+                    title: '遊戲名稱',
+                    width: 380,
+                    align: 'left'
+                }, {
+                    type: 'checkbox',
+                    title: 'NS (紅)',
+                    width: 80
+                }, {
+                    type: 'checkbox',
+                    title: 'NS2 (紅)',
+                    width: 80
+                }, {
+                    type: 'checkbox',
+                    title: 'PS (藍)',
+                    width: 80
+                }],
+                allowInsertColumn: true,
+                allowDeleteColumn: false,
+                minDimensions: [5, 15]
+            });
+        }
+        window.addEventListener('DOMContentLoaded', initEmptyExcel);
+
+        function getTodayString() {
+            var today = new Date();
+            var yyyy = today.getFullYear();
+            var mm = String(today.getMonth() + 1).padStart(2, '0');
+            var dd = String(today.getDate()).padStart(2, '0');
+            return yyyy + "-" + mm + "-" + dd;
+        }
+
+        gamesRef.orderByChild('release_date').on('value', function(snapshot) {
+            var upcomingContainer = document.getElementById("upcoming-container");
+            var tbaContainer = document.getElementById("tba-container");
+            var releasedContainer = document.getElementById("released-container");
+            var backendTableBody = document.getElementById("backend-table-body");
+
+            upcomingContainer.innerHTML = "";
+            tbaContainer.innerHTML = "";
+            releasedContainer.innerHTML = "";
+            backendTableBody.innerHTML = "";
+
+            if (!snapshot.exists()) {
+                upcomingContainer.innerHTML = '<div class="text-center text-gray-400 py-10">目前暫無遊戲資料。</div>';
+                backendTableBody.innerHTML = '<tr><td colspan="4" class="text-center text-gray-400 p-6">資料庫目前空空如也</td></tr>';
+                return;
+            }
+
+            var todayStr = getTodayString();
+            var releasedGames = [];
+            var upcomingGroups = {};
+
+            snapshot.forEach(function(childSnapshot) {
+                var id = childSnapshot.key;
+                var game = childSnapshot.val();
+                game.id = id;
+
+                if (game.release_date) {
+                    game.release_date = game.release_date.split(" ")[0];
+                }
+
+                var ns = !!(game.platforms && game.platforms.includes('NS'));
+                var ns2 = !!(game.platforms && game.platforms.includes('NS2'));
+                var ps = !!(game.platforms && game.platforms.includes('PS'));
+
+                var tags = '';
+                if (ns) tags += '<span class="bg-red-600 text-white text-xs px-2 py-0.5 rounded font-bold mr-1 shadow-sm">NS</span>';
+                if (ns2) tags += '<span class="bg-red-500 text-white text-xs px-2 py-0.5 rounded font-bold mr-1 shadow-sm">NS2</span>';
+                if (ps) tags += '<span class="bg-blue-600 text-white text-xs px-2 py-0.5 rounded font-bold mr-1 shadow-sm">PS</span>';
+                game.tagsHTML = tags;
+
+                var dateText = game.release_date || "未定";
+                var gameDataJson = JSON.stringify(game).replace(/"/g, '&quot;');
+                game.onClickAttr = 'onclick="editSingleData(\'' + id + '\', ' + gameDataJson + ')"';
+
+                var trHTML = '<tr class="border-b border-gray-100 hover:bg-slate-50 transition"><td class="p-4 font-mono text-sm text-blue-600">' + dateText + '</td><td class="p-4 font-bold text-gray-800">' + game.title + '</td><td class="p-4">' + tags + '</td><td class="p-4 text-center"><button ' + game.onClickAttr + ' class="text-blue-500 hover:text-blue-700 font-bold text-sm bg-blue-50 px-3 py-1 rounded">修改</button></td></tr>';
+                backendTableBody.innerHTML += trHTML;
+
+                if (!game.release_date || game.release_date.trim() === "") {
+                    var tbaItem = '<div ' + game.onClickAttr + ' class="p-3 bg-slate-50 border border-gray-200 rounded-lg shadow-sm cursor-pointer hover:bg-slate-100 transition transform hover:-translate-y-0.5"><h4 class="font-bold text-gray-800 text-sm mb-2">' + game.title + '</h4><div class="flex gap-1">' + tags + '</div></div>';
+                    tbaContainer.innerHTML += tbaItem;
+                } else if (game.release_date < todayStr) {
+                    releasedGames.push(game);
+                } else {
+                    var monthKey = game.release_date.substring(0, 7);
+                    if (!upcomingGroups[monthKey]) upcomingGroups[monthKey] = [];
+                    upcomingGroups[monthKey].push(game);
+                }
+            });
+
+            if (releasedGames.length > 0) {
+                releasedGames.sort(function(a, b) {
+                    return a.release_date > b.release_date ? -1 : 1;
+                });
+                for (var i = 0; i < releasedGames.length; i++) {
+                    var rg = releasedGames[i];
+                    var rItem = '<div ' + rg.onClickAttr + ' class="flex justify-between items-center p-3 bg-white border border-gray-100 rounded shadow-sm hover:bg-gray-50 cursor-pointer transition"><div class="flex flex-col"><span class="text-xs text-gray-400 font-mono mb-1">' + rg.release_date + '</span><span class="font-bold text-sm text-slate-700">' + rg.title + '</span></div><div class="flex">' + rg.tagsHTML + '</div></div>';
+                    releasedContainer.innerHTML += rItem;
+                }
+            } else {
+                releasedContainer.innerHTML = '<div class="text-sm text-gray-400 text-center py-2">目前沒有歷史紀錄</div>';
+            }
+
+            var monthKeys = Object.keys(upcomingGroups).sort();
+            if (monthKeys.length === 0) {
+                upcomingContainer.innerHTML = '<div class="text-center text-gray-400 py-10">目前沒有即將發售的遊戲。</div>';
+            } else {
+                /* 判斷全局變數，決定渲染出來時要不要加上 open 屬性 */
+                var openAttr = window.isMonthsOpen ? 'open' : '';
+
+                for (var i = 0; i < monthKeys.length; i++) {
+                    var mKey = monthKeys[i];
+                    var gamesInMonth = upcomingGroups[mKey];
+                    var year = mKey.split("-")[0];
+                    var month = mKey.split("-")[1];
+                    var monthTitle = year + "年" + month + "月";
+
+                    var groupHTML = '<details class="group" ' + openAttr + '><summary class="bg-blue-600 text-white font-bold px-5 py-3 rounded-xl shadow cursor-pointer flex justify-between items-center mb-6 outline-none transition hover:bg-blue-700"><span>📅 ' + monthTitle + '</span><span class="transform group-open:rotate-180 transition duration-300">▼</span></summary><div class="relative timeline-line space-y-8 py-2 min-h-[50px] mb-8">';
+
+                    for (var j = 0; j < gamesInMonth.length; j++) {
+                        var ug = gamesInMonth[j];
+                        var isLeft = (j % 2 === 0);
+                        var alignClass = isLeft ? 'md:mr-auto md:text-right' : 'md:ml-auto md:text-left';
+
+                        groupHTML += '<div class="flex flex-col md:flex-row items-center relative z-10 w-full"><div class="absolute left-1/2 transform -translate-x-1/2 w-4 h-4 rounded-full border-4 border-blue-500 bg-white"></div><div class="w-full md:w-5/12 ' + alignClass + ' p-4"><div ' + ug.onClickAttr + ' class="bg-white p-4 rounded-xl shadow border border-gray-100 inline-block w-full max-w-sm text-left cursor-pointer transition transform hover:-translate-y-1 hover:shadow-lg"><div class="text-sm font-bold text-blue-600 mb-1">📅 ' + ug.release_date + '</div><h4 class="font-bold text-gray-900 mb-3 text-base">' + ug.title + '</h4><div class="flex gap-1.5">' + ug.tagsHTML + '</div></div></div></div>';
+                    }
+                    groupHTML += '</div></details>';
+                    upcomingContainer.innerHTML += groupHTML;
+                }
+            }
+
+            if (tbaContainer.innerHTML === "") tbaContainer.innerHTML = '<div class="text-sm text-gray-400 text-center py-4">目前沒有未定遊戲</div>';
+        });
+
+        function editSingleData(id, game) {
+            document.getElementById("gameForm").reset();
+            document.getElementById("modalTitle").innerText = "🔧 修改遊戲資料";
+            document.getElementById("gameId").value = id;
+            document.getElementById("title").value = game.title;
+            document.getElementById("releaseDate").value = game.release_date || "";
+            document.getElementById("deleteBtn").classList.remove("hidden");
+
+            var checkboxes = document.querySelectorAll('.platform-checkbox');
+            for (var i = 0; i < checkboxes.length; i++) {
+                checkboxes[i].checked = !!(game.platforms && game.platforms.includes(checkboxes[i].value));
+            }
+            document.getElementById("gameModal").classList.remove("hidden");
+        }
+
+        function submitSingleForm(e) {
+            e.preventDefault();
+            var id = document.getElementById("gameId").value;
+            var title = document.getElementById("title").value.trim();
+            var rawDate = document.getElementById("releaseDate").value;
+            var release_date = rawDate ? rawDate.split(" ")[0] : "";
+
+            var platforms = [];
+            var checkboxes = document.querySelectorAll('.platform-checkbox:checked');
+            for (var i = 0; i < checkboxes.length; i++) platforms.push(checkboxes[i].value);
+
+            var data = {
+                title: title,
+                release_date: release_date,
+                platforms: platforms,
+                updated_at: Date.now()
+            };
+
+            if (id) {
+                db.ref('games/' + id).update(data).then(function() {
+                    closeModal();
+                }).catch(function(err) {
+                    alert("儲存失敗：" + err.message);
+                });
+            } else {
+                gamesRef.push(data).then(function() {
+                    closeModal();
+                }).catch(function(err) {
+                    alert("新增失敗：" + err.message);
+                });
+            }
+        }
+
+        function deleteSingleData() {
+            var id = document.getElementById("gameId").value;
+            if (id && confirm("確定要刪除這款遊戲嗎？")) {
+                db.ref('games/' + id).remove().then(function() {
+                    closeModal();
+                }).catch(function(err) {
+                    alert("刪除失敗：" + err.message);
+                });
+            }
+        }
+
+        function saveExcelData() {
+            if (!window.excelTable) return;
+            var rows = window.excelTable.getData();
+            var uploadObj = {};
+            var hasData = false;
+
+            for (var i = 0; i < rows.length; i++) {
+                var row = rows[i];
+                var date = row[0] ? String(row[0]).trim().split(" ")[0] : "";
+                var title = row[1] ? String(row[1]).trim() : "";
+
+                if (!title) continue;
+
+                var platforms = [];
+                if (row[2] === true || row[2] === 1 || row[2] === "true") platforms.push("NS");
+                if (row[3] === true || row[3] === 1 || row[3] === "true") platforms.push("NS2");
+                if (row[4] === true || row[4] === 1 || row[4] === "true") platforms.push("PS");
+
+                var keyDate = date ? date : "TBA";
+                var key = keyDate + "_" + Date.now() + "_" + i;
+
+                uploadObj[key] = {
+                    title: title,
+                    release_date: date,
+                    platforms: platforms,
+                    updated_at: Date.now()
+                };
+                hasData = true;
+            }
+
+            if (!hasData) {
+                alert("⚠️ 表格中沒有填寫任何有效的遊戲名稱！");
+                return;
+            }
+
+            if (!confirm("確定要將這些資料新增至雲端嗎？\n(此操作為附加更新，不會刪除原有資料庫的內容)")) return;
+
+            gamesRef.update(uploadObj).then(function() {
+                alert("🎉 批次資料已成功新增！");
+                initEmptyExcel();
+            }).catch(function(err) {
+                alert("儲存失敗：" + err.message);
+            });
+        }
+    </script>
+</body>
+
+</html>
