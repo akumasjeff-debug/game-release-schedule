@@ -17,10 +17,15 @@
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
 
     <style>
-        .timeline-line::before {
+        .timeline-container-line {
+            position: relative;
+        }
+        
+        .timeline-container-line::before {
             content: '';
             position: absolute;
             left: 50%;
+            top: 0;
             transform: translateX(-50%);
             width: 4px;
             height: 100%;
@@ -323,19 +328,29 @@
             var todayStr = getTodayString();
             var releasedGames = [];
             var upcomingGroups = {};
+            var excelData = [];
 
             snapshot.forEach(function(childSnapshot) {
                 var id = childSnapshot.key;
                 var game = childSnapshot.val();
+
+                /* 如果一整列都是空的、或是沒有 title 欄位，直接略過防呆 */
+                if (!game || !game.title) return;
+
                 game.id = id;
 
-                if (game.release_date) {
-                    game.release_date = game.release_date.split(" ")[0];
+                /* 加強防護：確保日期字串存在才切尾巴 */
+                if (game.release_date && typeof game.release_date === "string") {
+                    game.release_date = game.release_date.split(" ")[0].trim();
+                } else {
+                    game.release_date = "";
                 }
 
                 var ns = !!(game.platforms && game.platforms.includes('NS'));
                 var ns2 = !!(game.platforms && game.platforms.includes('NS2'));
                 var ps = !!(game.platforms && game.platforms.includes('PS'));
+
+                excelData.push([game.release_date || "", game.title || "", ns, ns2, ps]);
 
                 var tags = '';
                 if (ns) tags += '<span class="bg-red-600 text-white text-xs px-2 py-0.5 rounded font-bold mr-1 shadow-sm">NS</span>';
@@ -347,22 +362,21 @@
                 var gameDataJson = JSON.stringify(game).replace(/"/g, '&quot;');
                 game.onClickAttr = 'onclick="editSingleData(\'' + id + '\', ' + gameDataJson + ')"';
 
-                // 生成搜尋超連結與專用按鈕 (防止點擊觸發編輯)
                 var searchUrl = "https://www.google.com/search?q=" + encodeURIComponent(game.title);
-                var searchBtnHtml = '<a href="' + searchUrl + '" target="_blank" onclick="event.stopPropagation()" class="text-xs bg-blue-50 hover:bg-blue-100 text-blue-600 px-2 py-1 rounded shadow-sm transition flex-shrink-0 flex items-center gap-1 border border-blue-100">🔍 介紹</a>';
+                var uSearchBtnHtml = '<a href="' + searchUrl + '" target="_blank" onclick="event.stopPropagation()" class="text-xs bg-blue-50 hover:bg-blue-100 text-blue-600 px-2 py-1 rounded shadow-sm transition flex-shrink-0 flex items-center gap-1 border border-blue-100">🔍 介紹</a>';
                 var smallSearchBtnHtml = '<a href="' + searchUrl + '" target="_blank" onclick="event.stopPropagation()" class="text-xs bg-gray-200 hover:bg-gray-300 text-gray-600 px-2 py-1 rounded transition flex-shrink-0">🔍</a>';
 
                 var trHTML = '<tr class="border-b border-gray-100 hover:bg-slate-50 transition"><td class="p-4 font-mono text-sm text-blue-600">' + dateText + '</td><td class="p-4 font-bold text-gray-800">' + game.title + '</td><td class="p-4">' + tags + '</td><td class="p-4 text-center"><button ' + game.onClickAttr + ' class="text-blue-500 hover:text-blue-700 font-bold text-sm bg-blue-50 px-3 py-1 rounded">修改</button></td></tr>';
                 backendTableBody.innerHTML += trHTML;
 
                 if (!game.release_date || game.release_date.trim() === "") {
-                    // TBA 區塊
                     var tbaItem = '<div ' + game.onClickAttr + ' class="p-3 bg-slate-50 border border-gray-200 rounded-lg shadow-sm cursor-pointer hover:bg-slate-100 transition transform hover:-translate-y-0.5"><h4 class="font-bold text-gray-800 text-sm mb-2 flex justify-between items-start gap-2"><span>' + game.title + '</span>' + smallSearchBtnHtml + '</h4><div class="flex gap-1">' + tags + '</div></div>';
                     tbaContainer.innerHTML += tbaItem;
                 } else if (game.release_date < todayStr) {
                     releasedGames.push(game);
                 } else {
-                    var monthKey = game.release_date.substring(0, 7);
+                    /* 加強安全檢查：確保長度足夠才擷取年月份 */
+                    var monthKey = game.release_date.length >= 7 ? game.release_date.substring(0, 7) : "其他";
                     if (!upcomingGroups[monthKey]) upcomingGroups[monthKey] = [];
                     upcomingGroups[monthKey].push(game);
                 }
@@ -391,11 +405,11 @@
                 for (var i = 0; i < monthKeys.length; i++) {
                     var mKey = monthKeys[i];
                     var gamesInMonth = upcomingGroups[mKey];
-                    var year = mKey.split("-")[0];
-                    var month = mKey.split("-")[1];
+                    var year = mKey.split("-")[0] || "未知";
+                    var month = mKey.split("-")[1] || "未知";
                     var monthTitle = year + "年" + month + "月";
 
-                    var groupHTML = '<details class="group" ' + openAttr + '><summary class="bg-blue-600 text-white font-bold px-5 py-3 rounded-xl shadow cursor-pointer flex justify-between items-center mb-6 outline-none transition hover:bg-blue-700"><span>📅 ' + monthTitle + '</span><span class="transform group-open:rotate-180 transition duration-300">▼</span></summary><div class="relative timeline-line space-y-8 py-2 min-h-[50px] mb-8">';
+                    var groupHTML = '<details class="group" ' + openAttr + '><summary class="bg-blue-600 text-white font-bold px-5 py-3 rounded-xl shadow cursor-pointer flex justify-between items-center mb-6 outline-none transition hover:bg-blue-700"><span>📅 ' + monthTitle + '</span><span class="transform group-open:rotate-180 transition duration-300">▼</span></summary><div class="timeline-container-line space-y-8 py-4 min-h-[50px] mb-8">';
 
                     for (var j = 0; j < gamesInMonth.length; j++) {
                         var ug = gamesInMonth[j];
@@ -422,7 +436,6 @@
             document.getElementById("releaseDate").value = game.release_date || "";
             document.getElementById("deleteBtn").classList.remove("hidden");
 
-            // 更新並顯示彈窗內的搜尋按鈕
             var searchLink = document.getElementById("modalSearchLink");
             searchLink.href = "https://www.google.com/search?q=" + encodeURIComponent(game.title);
             searchLink.classList.remove("hidden");
@@ -469,12 +482,20 @@
 
         function deleteSingleData() {
             var id = document.getElementById("gameId").value;
-            if (id && confirm("確定要刪除這款遊戲嗎？")) {
-                db.ref('games/' + id).remove().then(function() {
-                    closeModal();
-                }).catch(function(err) {
-                    alert("刪除失敗：" + err.message);
-                });
+            if (id) {
+                var password = prompt("⚠️ 請輸入刪除安全鎖密碼：");
+                if (password === null) return;
+
+                if (password === "666") {
+                    db.ref('games/' + id).remove().then(function() {
+                        closeModal();
+                        alert("🗑️ 遊戲已安全刪除！");
+                    }).catch(function(err) {
+                        alert("刪除失敗：" + err.message);
+                    });
+                } else {
+                    alert("❌ 密碼錯誤！安全鎖已攔截刪除動作。");
+                }
             }
         }
 
