@@ -148,7 +148,10 @@
             <form id="gameForm" onsubmit="submitSingleForm(event)">
                 <input type="hidden" id="gameId">
                 <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">遊戲名稱 (必填)</label>
+                    <div class="flex justify-between items-end mb-1">
+                        <label class="block text-sm font-medium text-gray-700">遊戲名稱 (必填)</label>
+                        <a id="modalSearchLink" href="#" target="_blank" class="text-xs text-blue-500 hover:text-blue-700 font-bold hidden flex items-center gap-1">🔍 網路搜尋</a>
+                    </div>
                     <input type="text" id="title" required class="w-full border border-gray-300 rounded px-3 py-2 focus:outline-none focus:border-blue-500">
                 </div>
                 <div class="mb-4">
@@ -196,10 +199,8 @@
         var db = firebase.database();
         var gamesRef = db.ref('games');
 
-        /* 全域變數：紀錄月份群組是否為「全部展開」狀態 */
         window.isMonthsOpen = true;
 
-        /* 一鍵收合/展開所有月份的函式 */
         function toggleAllMonths() {
             window.isMonthsOpen = !window.isMonthsOpen;
             var btn = document.getElementById("toggleAllBtn");
@@ -210,7 +211,6 @@
                 btn.innerText = "全部展開 ▼";
             }
 
-            /* 選取 upcoming-container 裡面所有的 details 元素並修改狀態 */
             var detailsElements = document.querySelectorAll('#upcoming-container details');
             for (var i = 0; i < detailsElements.length; i++) {
                 if (window.isMonthsOpen) {
@@ -247,6 +247,7 @@
             document.getElementById("gameId").value = "";
             document.getElementById("modalTitle").innerText = "✨ 新增發售遊戲";
             document.getElementById("deleteBtn").classList.add("hidden");
+            document.getElementById("modalSearchLink").classList.add("hidden");
             document.getElementById("gameModal").classList.remove("hidden");
         }
 
@@ -346,11 +347,17 @@
                 var gameDataJson = JSON.stringify(game).replace(/"/g, '&quot;');
                 game.onClickAttr = 'onclick="editSingleData(\'' + id + '\', ' + gameDataJson + ')"';
 
+                // 生成搜尋超連結與專用按鈕 (防止點擊觸發編輯)
+                var searchUrl = "https://www.google.com/search?q=" + encodeURIComponent(game.title);
+                var searchBtnHtml = '<a href="' + searchUrl + '" target="_blank" onclick="event.stopPropagation()" class="text-xs bg-blue-50 hover:bg-blue-100 text-blue-600 px-2 py-1 rounded shadow-sm transition flex-shrink-0 flex items-center gap-1 border border-blue-100">🔍 介紹</a>';
+                var smallSearchBtnHtml = '<a href="' + searchUrl + '" target="_blank" onclick="event.stopPropagation()" class="text-xs bg-gray-200 hover:bg-gray-300 text-gray-600 px-2 py-1 rounded transition flex-shrink-0">🔍</a>';
+
                 var trHTML = '<tr class="border-b border-gray-100 hover:bg-slate-50 transition"><td class="p-4 font-mono text-sm text-blue-600">' + dateText + '</td><td class="p-4 font-bold text-gray-800">' + game.title + '</td><td class="p-4">' + tags + '</td><td class="p-4 text-center"><button ' + game.onClickAttr + ' class="text-blue-500 hover:text-blue-700 font-bold text-sm bg-blue-50 px-3 py-1 rounded">修改</button></td></tr>';
                 backendTableBody.innerHTML += trHTML;
 
                 if (!game.release_date || game.release_date.trim() === "") {
-                    var tbaItem = '<div ' + game.onClickAttr + ' class="p-3 bg-slate-50 border border-gray-200 rounded-lg shadow-sm cursor-pointer hover:bg-slate-100 transition transform hover:-translate-y-0.5"><h4 class="font-bold text-gray-800 text-sm mb-2">' + game.title + '</h4><div class="flex gap-1">' + tags + '</div></div>';
+                    // TBA 區塊
+                    var tbaItem = '<div ' + game.onClickAttr + ' class="p-3 bg-slate-50 border border-gray-200 rounded-lg shadow-sm cursor-pointer hover:bg-slate-100 transition transform hover:-translate-y-0.5"><h4 class="font-bold text-gray-800 text-sm mb-2 flex justify-between items-start gap-2"><span>' + game.title + '</span>' + smallSearchBtnHtml + '</h4><div class="flex gap-1">' + tags + '</div></div>';
                     tbaContainer.innerHTML += tbaItem;
                 } else if (game.release_date < todayStr) {
                     releasedGames.push(game);
@@ -367,7 +374,8 @@
                 });
                 for (var i = 0; i < releasedGames.length; i++) {
                     var rg = releasedGames[i];
-                    var rItem = '<div ' + rg.onClickAttr + ' class="flex justify-between items-center p-3 bg-white border border-gray-100 rounded shadow-sm hover:bg-gray-50 cursor-pointer transition"><div class="flex flex-col"><span class="text-xs text-gray-400 font-mono mb-1">' + rg.release_date + '</span><span class="font-bold text-sm text-slate-700">' + rg.title + '</span></div><div class="flex">' + rg.tagsHTML + '</div></div>';
+                    var rSearchBtnHtml = '<a href="https://www.google.com/search?q=' + encodeURIComponent(rg.title) + '" target="_blank" onclick="event.stopPropagation()" class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-500 px-1.5 py-0.5 rounded transition">🔍</a>';
+                    var rItem = '<div ' + rg.onClickAttr + ' class="flex justify-between items-center p-3 bg-white border border-gray-100 rounded shadow-sm hover:bg-gray-50 cursor-pointer transition"><div class="flex flex-col"><span class="text-xs text-gray-400 font-mono mb-1">' + rg.release_date + '</span><span class="font-bold text-sm text-slate-700 flex items-center gap-2">' + rg.title + rSearchBtnHtml + '</span></div><div class="flex">' + rg.tagsHTML + '</div></div>';
                     releasedContainer.innerHTML += rItem;
                 }
             } else {
@@ -378,7 +386,6 @@
             if (monthKeys.length === 0) {
                 upcomingContainer.innerHTML = '<div class="text-center text-gray-400 py-10">目前沒有即將發售的遊戲。</div>';
             } else {
-                /* 判斷全局變數，決定渲染出來時要不要加上 open 屬性 */
                 var openAttr = window.isMonthsOpen ? 'open' : '';
 
                 for (var i = 0; i < monthKeys.length; i++) {
@@ -394,8 +401,10 @@
                         var ug = gamesInMonth[j];
                         var isLeft = (j % 2 === 0);
                         var alignClass = isLeft ? 'md:mr-auto md:text-right' : 'md:ml-auto md:text-left';
+                        var searchUrl = "https://www.google.com/search?q=" + encodeURIComponent(ug.title);
+                        var uSearchBtnHtml = '<a href="' + searchUrl + '" target="_blank" onclick="event.stopPropagation()" class="text-xs bg-blue-50 hover:bg-blue-100 text-blue-600 px-2 py-1 rounded shadow-sm transition flex-shrink-0 flex items-center gap-1 border border-blue-100">🔍 介紹</a>';
 
-                        groupHTML += '<div class="flex flex-col md:flex-row items-center relative z-10 w-full"><div class="absolute left-1/2 transform -translate-x-1/2 w-4 h-4 rounded-full border-4 border-blue-500 bg-white"></div><div class="w-full md:w-5/12 ' + alignClass + ' p-4"><div ' + ug.onClickAttr + ' class="bg-white p-4 rounded-xl shadow border border-gray-100 inline-block w-full max-w-sm text-left cursor-pointer transition transform hover:-translate-y-1 hover:shadow-lg"><div class="text-sm font-bold text-blue-600 mb-1">📅 ' + ug.release_date + '</div><h4 class="font-bold text-gray-900 mb-3 text-base">' + ug.title + '</h4><div class="flex gap-1.5">' + ug.tagsHTML + '</div></div></div></div>';
+                        groupHTML += '<div class="flex flex-col md:flex-row items-center relative z-10 w-full"><div class="absolute left-1/2 transform -translate-x-1/2 w-4 h-4 rounded-full border-4 border-blue-500 bg-white"></div><div class="w-full md:w-5/12 ' + alignClass + ' p-4"><div ' + ug.onClickAttr + ' class="bg-white p-4 rounded-xl shadow border border-gray-100 inline-block w-full max-w-sm text-left cursor-pointer transition transform hover:-translate-y-1 hover:shadow-lg"><div class="text-sm font-bold text-blue-600 mb-1">📅 ' + ug.release_date + '</div><h4 class="font-bold text-gray-900 mb-3 text-base flex justify-between items-start gap-2"><span>' + ug.title + '</span>' + uSearchBtnHtml + '</h4><div class="flex gap-1.5">' + ug.tagsHTML + '</div></div></div></div>';
                     }
                     groupHTML += '</div></details>';
                     upcomingContainer.innerHTML += groupHTML;
@@ -412,6 +421,11 @@
             document.getElementById("title").value = game.title;
             document.getElementById("releaseDate").value = game.release_date || "";
             document.getElementById("deleteBtn").classList.remove("hidden");
+
+            // 更新並顯示彈窗內的搜尋按鈕
+            var searchLink = document.getElementById("modalSearchLink");
+            searchLink.href = "https://www.google.com/search?q=" + encodeURIComponent(game.title);
+            searchLink.classList.remove("hidden");
 
             var checkboxes = document.querySelectorAll('.platform-checkbox');
             for (var i = 0; i < checkboxes.length; i++) {
